@@ -1,18 +1,20 @@
 from datetime import timedelta
-from airflow.utils.timezone import utcnow
 from airflow import DAG
 from airflow.providers.http.operators.http import HttpOperator as SimpleHttpOperator
 from airflow.decorators import task
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 import json
+import pendulum
 
 
 ## Define the DAG
 with DAG(
     dag_id='nasa_apod_postgres',
-    start_date=utcnow() - timedelta(days=1),
+    start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
     schedule='@daily',
-    catchup=False
+    catchup=False,
+    tags=['nasa', 'etl'],
+    default_args={'retries': 2, 'retry_delay': timedelta(minutes=5)},
 ) as dag:
     
     ## Step 1: Create the table if it does not exist
