@@ -32,6 +32,9 @@ with DAG(
             date DATE,
             media_type VARCHAR(50)
         );
+        -- One row per APOD day, so reruns can't create duplicates.
+        -- (An index rather than an inline UNIQUE so it also applies to an existing table.)
+        CREATE UNIQUE INDEX IF NOT EXISTS apod_data_date_key ON apod_data (date);
         """
         ## Execute the table creation query
         postgres_hook.run(create_table_query)
@@ -43,7 +46,9 @@ with DAG(
         http_conn_id='nasa_api',  ## Connection ID Defined in Airflow for NASA API
         endpoint='planetary/apod', ## NASA API endpoint for APOD
         method='GET',
-        data={"api_key":"{{ conn.nasa_api.extra_dejson.api_key }}"},  ## Use the API Key from the connection
+        ## Fetch the picture for the run's logical date ({{ ds }}), so retries and backfills
+        ## load the same day's data instead of whatever "today" is when the task runs
+        data={"api_key":"{{ conn.nasa_api.extra_dejson.api_key }}", "date": "{{ ds }}"},
         response_filter=lambda response: response.json(),  ## Convert the response to a JSON
     )
 
@@ -65,9 +70,16 @@ with DAG(
         ## Initialize the PostgresHook
         postgres_hook = PostgresHook(postgres_conn_id='my_postgres_connection')
         ## Define the SQL Insert Query
+        ## Upsert on date: the load is idempotent, so a retry or rerun updates the row
+        ## for that day instead of inserting a duplicate
         insert_query = """
         INSERT INTO apod_data (title, explanation, url, date, media_type)
-        VALUES (%s, %s, %s, %s, %s);
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (date) DO UPDATE SET
+            title       = EXCLUDED.title,
+            explanation = EXCLUDED.explanation,
+            url         = EXCLUDED.url,
+            media_type  = EXCLUDED.media_type;
         """
         ## Execute the SQL Query
         postgres_hook.run(
