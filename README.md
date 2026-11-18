@@ -39,3 +39,6 @@ This stage involves extracting relevant fields like title, explanation, url, and
 3. Load (L):
 The transformed data is loaded into a Postgres table using PostgresHook.
 If the target table doesn’t exist in the Postgres database, it is created automatically as part of the DAG using a create table task.
+The load is idempotent: the table has a unique index on `date`, and the insert uses `INSERT ... ON CONFLICT (date) DO UPDATE`, so re-running the DAG for the same day updates that day's row instead of creating a duplicate.
+
+Reliability: each task retries twice, five minutes apart (`retries=2`, `retry_delay=5 min`), and the NASA API key is stored in the Airflow connection, not in the code.
