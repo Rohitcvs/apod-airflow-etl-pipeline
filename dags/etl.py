@@ -32,6 +32,9 @@ with DAG(
             date DATE,
             media_type VARCHAR(50)
         );
+        -- One row per APOD date. Created separately so it also applies to a
+        -- table that already existed before this constraint was added.
+        CREATE UNIQUE INDEX IF NOT EXISTS apod_data_date_key ON apod_data (date);
         """
         ## Execute the table creation query
         postgres_hook.run(create_table_query)
@@ -64,10 +67,17 @@ with DAG(
     def load_data_to_postgres(apod_data):
         ## Initialize the PostgresHook
         postgres_hook = PostgresHook(postgres_conn_id='my_postgres_connection')
-        ## Define the SQL Insert Query
+        ## Define the SQL upsert query. ON CONFLICT makes the load idempotent:
+        ## re-running the DAG for the same day updates that day's row instead
+        ## of inserting a duplicate.
         insert_query = """
         INSERT INTO apod_data (title, explanation, url, date, media_type)
-        VALUES (%s, %s, %s, %s, %s);
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (date) DO UPDATE SET
+            title       = EXCLUDED.title,
+            explanation = EXCLUDED.explanation,
+            url         = EXCLUDED.url,
+            media_type  = EXCLUDED.media_type;
         """
         ## Execute the SQL Query
         postgres_hook.run(
